@@ -1,0 +1,32 @@
+{
+  "id": "0d2d5722-6cbf-4900-93fb-f01fd09d677a",
+  "version": "0.2.0",
+  "platform": "all",
+  "arch": "all",
+  "name": "图片文字写入注释",
+  "logo": "/logo.png",
+  "keywords": [
+    "ocr",
+    "annotation",
+    "text",
+    "image",
+    "eagle"
+  ],
+  "devTools": false,
+  "main": {
+    "url": "index.html",
+    "width": 1100,
+    "height": 760,
+    "minWidth": 960,
+    "minHeight": 620,
+    "resizable": true,
+    "maximizable": true,
+    "minimizable": true,
+    "fullscreenable": true,
+    "alwaysOnTop": false,
+    "frame": true,
+    "backgroundColor": "#35363a",
+    "multiple": false,
+    "runAfterInstall": false
+  }
+}

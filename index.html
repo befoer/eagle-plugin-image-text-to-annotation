@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>图片文字写入注释</title>
+    <link rel="stylesheet" href="styles/plugin.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <section id="bootstrapScreen" class="bootstrap-screen" hidden>
+        <div class="bootstrap-card">
+          <div class="bootstrap-visual">
+            <div class="bootstrap-logo-shell">
+              <img class="bootstrap-logo" src="logo.png" alt="插件图标" />
+              <span id="bootstrapSpinner" class="bootstrap-spinner" aria-hidden="true"></span>
+            </div>
+          </div>
+          <div class="bootstrap-copy">
+            <h1 id="bootstrapTitle" class="bootstrap-title">正在初始化本地 OCR 环境</h1>
+            <p id="bootstrapMessage" class="bootstrap-message">首次启动会自动准备识别模型和依赖，通常需要几分钟。</p>
+          </div>
+          <div class="bootstrap-actions">
+            <button id="bootstrapRetryButton" class="ghost-button" type="button" hidden>重试安装</button>
+            <button id="bootstrapCloseButton" class="ghost-button bootstrap-close-button" type="button">关闭插件</button>
+          </div>
+        </div>
+      </section>
+
+      <main id="pluginFrame" class="plugin-frame" hidden>
+        <section class="workspace">
+          <section class="settings-panel">
+            <div class="panel-head">
+              <strong>识别设置</strong>
+              <span id="selectionHint" class="panel-hint"></span>
+            </div>
+
+            <div class="setting-block">
+              <label class="field">
+                <span class="field-label">识别语言</span>
+                <select id="ocrLanguageSelect" class="field-input">
+                  <option value="chi_sim+eng" selected>简体中文 + 英文</option>
+                  <option value="chi_sim">仅简体中文</option>
+                  <option value="eng">仅英文</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="setting-block">
+              <label class="field">
+                <span class="field-label">写入方式</span>
+                <select id="writeModeSelect" class="field-input">
+                  <option value="append" selected>追加到注释</option>
+                  <option value="overwrite">覆盖注释</option>
+                  <option value="empty_only">仅注释为空时写入</option>
+                  <option value="name_overwrite">写入文件名</option>
+                  <option value="name_append">追加到文件名</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="checkbox-row">
+              <label class="checkbox-field">
+                <input id="trimTextCheckbox" type="checkbox" checked />
+                <span>自动整理识别文字换行和空白</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="list-panel">
+            <div class="panel-head">
+              <strong>待处理项目</strong>
+              <span id="listHint" class="panel-hint">会显示当前选中图片的识别状态，以及写入结果的预览文本。</span>
+            </div>
+
+            <div id="selectionList" class="selection-list" aria-live="polite"></div>
+          </section>
+        </section>
+
+        <header class="toolbar toolbar-bottom">
+          <div class="toolbar-summary">
+            <span class="summary-metric">已选择项目 <strong id="selectedCount">0</strong></span>
+            <span class="summary-metric">可识别项目 <strong id="processableCount">0</strong></span>
+          </div>
+          <div class="toolbar-actions">
+            <button id="refreshSelectionButton" class="ghost-button" type="button">刷新已选项目</button>
+            <button id="runButton" class="primary-action-button" type="button" disabled>开始识别</button>
+          </div>
+        </header>
+      </main>
+
+      <div id="dialogRoot" class="dialog-root" hidden>
+        <div id="dialogBackdrop" class="dialog-backdrop"></div>
+        <div class="dialog-card" role="dialog" aria-modal="true" aria-labelledby="dialogTitle" aria-describedby="dialogMessage">
+          <div class="dialog-content">
+            <div id="dialogIcon" class="dialog-icon info" aria-hidden="true">i</div>
+            <div class="dialog-copy">
+              <h2 id="dialogTitle" class="dialog-title">提示</h2>
+              <p id="dialogMessage" class="dialog-message"></p>
+            </div>
+          </div>
+          <div id="dialogActions" class="dialog-actions single">
+            <button id="dialogCancelButton" class="ghost-button" type="button" hidden>取消</button>
+            <button id="dialogConfirmButton" class="primary-action-button" type="button">确认</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="js/plugin.js"></script>
+  </body>
+</html>
