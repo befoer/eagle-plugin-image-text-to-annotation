@@ -104,6 +104,6 @@ image-text-to-annotation/
 - 对梗图、手写体、极端压缩图，OCR 仍可能出现误识别。
 - 文件名写入模式会自动处理非法字符，但仍建议先用少量图片测试后再大批量使用。
 
-## 版本
+## 项目地址
 
-当前版本：`0.2.0`
+https://github.com/befoer/eagle-plugin-image-text-to-annotation
