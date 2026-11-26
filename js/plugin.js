@@ -30,6 +30,10 @@ const RUNTIME_BOOTSTRAP = {
     ["python_deps", "paddleocr", "__init__.py"],
     ["python_deps", "paddle", "base", "libpaddle.pyd"],
   ],
+  requiredModelPaths: [
+    [".paddlex", "official_models", "PP-OCRv5_mobile_det", "inference.pdiparams"],
+    [".paddlex", "official_models", "PP-OCRv5_mobile_rec", "inference.pdiparams"],
+  ],
 };
 
 const CJK_CHAR_PATTERN = /[\u3400-\u9fff]/g;
@@ -1256,14 +1260,24 @@ function resolveRuntimeRoot(nodeRuntime) {
   return nodeRuntime.path.join(baseDir, "EaglePluginRuntime", RUNTIME_BOOTSTRAP.runtimeFolderName);
 }
 
+function resolveUserHomeDir(nodeRuntime) {
+  const env = nodeRuntime.process.env || {};
+  return [env.USERPROFILE, env.HOME]
+    .map((value) => String(value || "").trim())
+    .find(Boolean) || "";
+}
+
 function buildRuntimeEnv(nodeRuntime, runtimeRoot) {
   const cacheRoot = nodeRuntime.path.join(runtimeRoot, "cache");
+  const env = nodeRuntime.process.env || {};
   return {
-    ...nodeRuntime.process.env,
+    ...env,
     PYTHONUTF8: "1",
     PYTHONIOENCODING: "utf-8",
+    PYTHONDONTWRITEBYTECODE: "1",
     EAGLE_PLUGIN_RUNTIME_ROOT: runtimeRoot,
     PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True",
+    PADDLE_PDX_MODEL_SOURCE: env.PADDLE_PDX_MODEL_SOURCE || "modelscope",
     PADDLE_HOME: nodeRuntime.path.join(runtimeRoot, "paddle_home"),
     PADDLEX_HOME: nodeRuntime.path.join(runtimeRoot, "paddlex_home"),
     XDG_CACHE_HOME: cacheRoot,
@@ -1278,7 +1292,13 @@ function isOcrRuntimeReady(pluginRoot, runtimeRoot, nodeRuntime) {
   const depsReady = RUNTIME_BOOTSTRAP.requiredDependencyPaths.every((segments) =>
     nodeRuntime.fs.existsSync(nodeRuntime.path.join(runtimeRoot, ...segments))
   );
-  return pluginReady && depsReady;
+  const homeDir = resolveUserHomeDir(nodeRuntime);
+  const modelsReady = homeDir
+    ? RUNTIME_BOOTSTRAP.requiredModelPaths.every((segments) =>
+        nodeRuntime.fs.existsSync(nodeRuntime.path.join(homeDir, ...segments))
+      )
+    : true;
+  return pluginReady && depsReady && modelsReady;
 }
 
 function resolvePluginRoot(nodeRuntime) {
@@ -1779,7 +1799,20 @@ async function ensureRuntimeInstalled(nodeRuntime) {
   }
 }
 
-async function runPaddleOcrBatch(entries, settings, nodeRuntime) {
+async function cleanupStaleTempFiles(nodeRuntime, pluginRoot) {
+  const tmpDir = nodeRuntime.path.join(pluginRoot, "tmp");
+  try {
+    const names = await nodeRuntime.fs.promises.readdir(tmpDir);
+    const staleFiles = names.filter((name) => /^paddleocr-(?:request|response)-.+\.json$/i.test(name));
+    await Promise.allSettled(
+      staleFiles.map((name) => nodeRuntime.fs.promises.unlink(nodeRuntime.path.join(tmpDir, name)))
+    );
+  } catch (error) {
+    // ignore missing or inaccessible tmp directory
+  }
+}
+
+async function runPaddleOcrBatch(entries, settings, nodeRuntime, onProgress) {
   const pluginRoot = resolvePluginRoot(nodeRuntime);
   const runtimeRoot = resolveRuntimeRoot(nodeRuntime);
   const scriptPath = nodeRuntime.path.join(pluginRoot, "python", "paddle_ocr_runner.py");
@@ -1788,6 +1821,7 @@ async function runPaddleOcrBatch(entries, settings, nodeRuntime) {
   const python = await ensurePythonRuntime(nodeRuntime, runtimeRoot);
 
   await nodeRuntime.fs.promises.mkdir(nodeRuntime.path.join(pluginRoot, "tmp"), { recursive: true });
+  await cleanupStaleTempFiles(nodeRuntime, pluginRoot);
   await writeJsonFile(
     requestPath,
     {
@@ -1800,14 +1834,31 @@ async function runPaddleOcrBatch(entries, settings, nodeRuntime) {
     nodeRuntime
   );
 
+  const handleOutputLine = (line) => {
+    const parsed = parseInstallerLine(line);
+    if (parsed?.__ocr_event__) {
+      onProgress?.(parsed);
+      return;
+    }
+
+    if (/Downloading|modelscope_hub|automatically downloaded/i.test(line)) {
+      onProgress?.({
+        stage: "downloading_model",
+        message: "正在下载 OCR 识别模型，首次使用该语言通常需要 1~2 分钟，请稍候...",
+      });
+    }
+  };
+
   try {
     await runProcess(
       python.command,
-      [...python.args, scriptPath, "--input", requestPath, "--output", responsePath],
+      [...python.args, "-u", scriptPath, "--input", requestPath, "--output", responsePath],
       {
         cwd: pluginRoot,
         windowsHide: true,
         env: buildRuntimeEnv(nodeRuntime, runtimeRoot),
+        onStdoutLine: handleOutputLine,
+        onStderrLine: handleOutputLine,
       },
       nodeRuntime
     );
@@ -1995,15 +2046,38 @@ async function handleRun() {
     for (const entry of readyEntries) {
       updatePlanEntry(entry.item.id, {
         status: "processing",
-        message: `正在识别 | PaddleOCR | ${getLanguageLabel(settings.language)}`,
+        message: `正在准备识别 | PaddleOCR | ${getLanguageLabel(settings.language)}`,
         recognizedText: "",
         recognizedPreview: "",
         confidence: null,
       });
     }
+    setText("listHint", "正在启动本地 PaddleOCR 引擎...");
     renderSelectionList();
 
-    const batchResult = await runPaddleOcrBatch(readyEntries, settings, nodeRuntime);
+    const batchResult = await runPaddleOcrBatch(readyEntries, settings, nodeRuntime, (event) => {
+      if (event?.message) {
+        setText("listHint", event.message);
+      }
+
+      if (event?.stage === "downloading_model") {
+        for (const entry of readyEntries) {
+          updatePlanEntry(entry.item.id, {
+            message: "正在下载识别模型，请稍候...",
+          });
+        }
+        renderSelectionList();
+        return;
+      }
+
+      if (event?.stage === "recognizing" && event.id) {
+        updatePlanEntry(event.id, {
+          message: `正在识别 (${event.current}/${event.total}) | PaddleOCR | ${getLanguageLabel(settings.language)}`,
+        });
+        renderSelectionList();
+      }
+    });
+    setText("listHint", "识别完成，正在写入结果...");
     const resultMap = new Map((batchResult?.items || []).map((item) => [String(item?.id || ""), item]));
 
     for (const entry of readyEntries) {
@@ -2081,11 +2155,22 @@ async function handleRun() {
     if (errorCount > 0) {
       resultLines.push(`失败 ${errorCount} 张。`);
     }
+    setText("listHint", "会调用本地 PaddleOCR 识别并写入结果；首次运行会自动下载依赖和模型文件。");
     await showNotice(resultLines.join("\n"), {
       title: "识别完成！",
       variant: "success",
     });
   } catch (error) {
+    for (const entry of readyEntries) {
+      if (entry.status === "processing") {
+        updatePlanEntry(entry.item.id, {
+          status: "error",
+          message: `处理失败：${error?.message || error}`,
+        });
+      }
+    }
+    setText("listHint", "会调用本地 PaddleOCR 识别并写入结果；首次运行会自动下载依赖和模型文件。");
+    renderSelectionList();
     await showNotice(`执行失败：${error?.message || error}`, {
       title: "执行失败",
       variant: "error",

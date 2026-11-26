@@ -7,6 +7,7 @@ import sys
 import traceback
 from pathlib import Path
 
+sys.dont_write_bytecode = True
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_ROOT = Path(os.environ.get("EAGLE_PLUGIN_RUNTIME_ROOT") or (PLUGIN_ROOT / ".runtime")).resolve()
@@ -16,13 +17,19 @@ if DEPS_DIR.exists():
   sys.path.insert(0, str(DEPS_DIR))
 
 os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+os.environ.setdefault("PADDLE_PDX_MODEL_SOURCE", "modelscope")
 os.environ.setdefault("PADDLE_HOME", str(RUNTIME_ROOT / "paddle_home"))
 os.environ.setdefault("PADDLEX_HOME", str(RUNTIME_ROOT / "paddlex_home"))
 os.environ.setdefault("XDG_CACHE_HOME", str(RUNTIME_ROOT / "cache"))
 os.environ.setdefault("HF_HOME", str(RUNTIME_ROOT / "cache" / "huggingface"))
+os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
 
 
 OCR_CACHE: dict[str, object] = {}
+
+
+def emit_progress(payload: dict) -> None:
+  print(json.dumps({"__ocr_event__": True, **payload}, ensure_ascii=False), flush=True)
 
 
 def get_paddle_ocr_class():
@@ -138,8 +145,22 @@ def main() -> int:
 
     language = str(payload.get("language") or "chi_sim")
     items = payload.get("items") or []
+    emit_progress({
+      "stage": "loading_model",
+      "message": "正在加载本地 OCR 模型（首次使用该语言时会自动下载模型）...",
+    })
     ocr = build_ocr(language)
-    results = [process_item(ocr, item) for item in items]
+    total = len(items)
+    results = []
+    for index, item in enumerate(items, start=1):
+      emit_progress({
+        "stage": "recognizing",
+        "id": str(item.get("id") or ""),
+        "current": index,
+        "total": total,
+        "message": f"正在识别第 {index}/{total} 张图片...",
+      })
+      results.append(process_item(ocr, item))
 
     output = {
       "ok": True,
